@@ -236,9 +236,19 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <section className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
-          <aside className="space-y-5">
-            <form onSubmit={saveProfile} className="glass rounded-[28px] p-5">
+        <section className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[330px_minmax(0,1fr)]">
+          <aside className="order-2 space-y-5 xl:order-1 xl:sticky xl:top-5 xl:self-start">
+            <div className="glass rounded-[28px] p-4">
+              <p className="mb-3 px-2 text-xs font-black uppercase tracking-[.18em] text-slate-500">Workspace</p>
+              <nav className="grid gap-2 text-sm font-black text-slate-200">
+                <a className="rounded-2xl border border-cyan/20 bg-cyan/10 px-4 py-3 text-cyan-50" href="#dashboard-overview">Dashboard overview</a>
+                <a className="rounded-2xl border border-white/10 bg-white/[.035] px-4 py-3 hover:border-cyan/30" href="#clients">Clients</a>
+                <a className="rounded-2xl border border-white/10 bg-white/[.035] px-4 py-3 hover:border-cyan/30" href="#brand-setup">Brand setup</a>
+                <a className="rounded-2xl border border-white/10 bg-white/[.035] px-4 py-3 hover:border-cyan/30" href="#create-portal">Create portal</a>
+              </nav>
+            </div>
+
+            <form id="brand-setup" onSubmit={saveProfile} className="glass rounded-[28px] p-5">
               <div className="mb-4 flex items-center gap-3"><Palette className="text-cyan" /><h2 className="text-xl font-black tracking-[-0.04em]">Brand setup</h2></div>
               <label className="mb-3 block text-sm font-bold text-slate-300">Business name
                 <input className="input mt-2" name="business_name" defaultValue={profile?.business_name || ""} placeholder="Northstar Studio" />
@@ -252,7 +262,7 @@ export default function DashboardPage() {
               <button className="btn-primary w-full" disabled={saving}><ImagePlus size={17} /> Save branding</button>
             </form>
 
-            <form onSubmit={createClient} className="glass rounded-[28px] p-5">
+            <form id="create-portal" onSubmit={createClient} className="glass rounded-[28px] p-5">
               <div className="mb-4 flex items-center gap-3"><Plus className="text-lime" /><h2 className="text-xl font-black tracking-[-0.04em]">Create portal</h2></div>
               <div className="space-y-3">
                 <input className="input" name="name" required placeholder="Client name" />
@@ -267,19 +277,25 @@ export default function DashboardPage() {
             </form>
           </aside>
 
-          <section className="space-y-5">
-            <div className="grid gap-4 md:grid-cols-4">
+          <section id="dashboard-overview" className="order-1 space-y-5 xl:order-2">
+            <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
               <Stat icon={<UsersRound />} label="Total clients" value={stats.totalClients.toString()} />
               <Stat icon={<Building2 />} label="Active projects" value={stats.activeProjects.toString()} />
               <Stat icon={<BadgeCheck />} label="Pending approvals" value={stats.pendingApprovals.toString()} />
               <Stat icon={<CircleDollarSign />} label="Outstanding invoices" value={`$${stats.outstandingInvoices.toFixed(0)}`} />
             </div>
 
-            <div className="grid gap-5 2xl:grid-cols-[360px_minmax(0,1fr)]">
-              <div className="glass rounded-[28px] p-5">
-                <h2 className="mb-4 text-xl font-black tracking-[-0.04em]">Clients</h2>
-                <div className="max-h-[640px] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
-                  {clients.length === 0 && <Empty title="No portals yet" body="Create the first client portal from the form on the left." />}
+            <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[360px_minmax(0,1fr)]">
+              <div id="clients" className="glass rounded-[28px] p-4 sm:p-5 lg:sticky lg:top-5 lg:self-start">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[.18em] text-cyan">Client queue</p>
+                    <h2 className="mt-1 text-xl font-black tracking-[-0.04em]">Clients</h2>
+                  </div>
+                  <a href="#create-portal" className="rounded-2xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs font-black text-slate-200 xl:hidden">Add</a>
+                </div>
+                <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1 scrollbar-thin lg:max-h-[calc(100vh-230px)]">
+                  {clients.length === 0 && <Empty title="No client portals yet" body="Create one portal to give a client a clean link for files, approvals, updates, and invoices." />}
                   {clients.map((client) => (
                     <button key={client.id} onClick={() => setSelectedId(client.id)} className={`card-hover w-full rounded-3xl border p-4 text-left ${selectedClient?.id === client.id ? "border-cyan/50 bg-cyan/10" : "border-white/10 bg-white/[.035]"}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -315,7 +331,7 @@ export default function DashboardPage() {
 }
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return <div className="glass card-hover rounded-[26px] p-5"><div className="mb-5 text-cyan">{icon}</div><p className="text-sm font-bold text-slate-400">{label}</p><strong className="mt-1 block text-3xl font-black tracking-[-0.05em]">{value}</strong></div>;
+  return <div className="glass card-hover rounded-[22px] p-3.5 sm:rounded-[26px] sm:p-5"><div className="mb-3 text-cyan sm:mb-5">{icon}</div><p className="text-[11px] font-bold leading-4 text-slate-400 sm:text-sm">{label}</p><strong className="mt-1 block text-2xl font-black tracking-[-0.05em] sm:text-3xl">{value}</strong></div>;
 }
 
 function Empty({ title, body }: { title: string; body: string }) {
@@ -356,7 +372,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <input ref={fileInput} type="file" className="input" />
             <button onClick={() => void onUpload()} disabled={saving} className="btn-primary whitespace-nowrap"><FileUp size={16} /> Upload</button>
           </div>
-          <List items={related.files} render={(file) => <a href={publicUrl(file.file_path)} target="_blank" className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3"><span>{file.title}</span><span className="text-xs font-bold text-cyan">{file.file_type}</span></a>} />
+          <List items={related.files} emptyTitle="No files uploaded yet" emptyBody="Upload the first deliverable so the client has one clear place to download project files." render={(file) => <a href={publicUrl(file.file_path)} target="_blank" className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3"><span>{file.title}</span><span className="text-xs font-bold text-cyan">{file.file_type}</span></a>} />
         </Panel>
 
         <Panel title="Milestones" icon={<Clock3 className="text-lime" />}>
@@ -367,7 +383,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <input className="input" name="description" placeholder="Description" />
             <button className="btn-primary sm:col-span-2" disabled={saving}>Add milestone</button>
           </form>
-          <List items={related.milestones} render={(item) => <Row title={item.title} meta={`${item.status.replace("_", " ")}${item.due_date ? ` • ${item.due_date}` : ""}`} />} />
+          <List items={related.milestones} emptyTitle="No milestones yet" emptyBody="Add two or three simple milestones so the client can see what is done, what is active, and what is next." render={(item) => <Row title={item.title} meta={`${item.status.replace("_", " ")}${item.due_date ? ` • ${item.due_date}` : ""}`} />} />
         </Panel>
 
         <Panel title="Approvals" icon={<BadgeCheck className="text-teal" />}>
@@ -376,7 +392,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <textarea className="input min-h-24" name="description" placeholder="What should the client review?" />
             <button className="btn-primary w-full" disabled={saving}>Add approval request</button>
           </form>
-          <List items={related.approvals} render={(item) => <Row title={item.title} meta={item.status.replace("_", " ")} />} />
+          <List items={related.approvals} emptyTitle="No approval requests yet" emptyBody="Create an approval request when a design, draft, edit, or deliverable is ready for client sign-off." render={(item) => <Row title={item.title} meta={item.status.replace("_", " ")} />} />
         </Panel>
 
         <Panel title="Invoices" icon={<CircleDollarSign className="text-lime" />}>
@@ -386,7 +402,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <input className="input sm:col-span-2" name="payment_url" required type="url" placeholder="Stripe / PayPal payment link" />
             <button className="btn-primary sm:col-span-2" disabled={saving}>Add invoice</button>
           </form>
-          <List items={related.invoices} render={(item) => <a href={item.payment_url} target="_blank" className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3"><span>{item.title}</span><strong>${Number(item.amount).toFixed(2)}</strong></a>} />
+          <List items={related.invoices} emptyTitle="No invoices added yet" emptyBody="Add a manual invoice with a Stripe, PayPal, or payment link when the next payment is ready." render={(item) => <a href={item.payment_url} target="_blank" className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3"><span>{item.title}</span><strong>${Number(item.amount).toFixed(2)}</strong></a>} />
         </Panel>
 
         <Panel title="Project Updates" icon={<FileText className="text-cyan" />}>
@@ -395,7 +411,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <textarea className="input min-h-24" name="body" required placeholder="Write a short client-friendly project update." />
             <button className="btn-primary w-full" disabled={saving}>Post update</button>
           </form>
-          <List items={related.updates} render={(item) => <Row title={item.title} meta={item.body} />} />
+          <List items={related.updates} emptyTitle="No project updates yet" emptyBody="Post short updates instead of sending scattered emails. Keep the client informed without adding chat." render={(item) => <Row title={item.title} meta={item.body} />} />
         </Panel>
       </div>
     </div>
@@ -406,8 +422,8 @@ function Panel({ title, icon, children }: { title: string; icon: React.ReactNode
   return <section className="glass rounded-[28px] p-5"><div className="mb-4 flex items-center gap-3">{icon}<h3 className="text-xl font-black tracking-[-0.04em]">{title}</h3></div>{children}</section>;
 }
 
-function List<T>({ items, render }: { items: T[]; render: (item: T) => React.ReactNode }) {
-  return <div className="mt-4 space-y-2">{items.length === 0 ? <p className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">Nothing added yet.</p> : items.map((item, index) => <div key={index}>{render(item)}</div>)}</div>;
+function List<T>({ items, render, emptyTitle, emptyBody }: { items: T[]; render: (item: T) => React.ReactNode; emptyTitle: string; emptyBody: string }) {
+  return <div className="mt-4 space-y-2">{items.length === 0 ? <Empty title={emptyTitle} body={emptyBody} /> : items.map((item, index) => <div key={index}>{render(item)}</div>)}</div>;
 }
 
 function Row({ title, meta }: { title: string; meta: string }) {

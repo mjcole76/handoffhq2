@@ -13,7 +13,7 @@ const features = [
 export default function HomePage() {
   return (
     <main className="relative overflow-hidden">
-      <nav className="mx-auto flex w-[min(1180px,calc(100%-32px))] items-center justify-between py-6">
+      <nav className="mx-auto flex w-[min(1180px,calc(100%-32px))] items-center justify-between py-4 sm:py-6">
         <Link href="/" className="flex items-center gap-3 font-black tracking-[-0.04em]">
           <span className="grid h-11 w-11 place-items-center rounded-2xl bg-cyan-300 text-navy shadow-glow">HQ</span>
           <span>HandOffHQ</span>
@@ -24,20 +24,20 @@ export default function HomePage() {
         </div>
       </nav>
 
-      <section className="mx-auto grid min-h-[calc(100vh-96px)] w-[min(1180px,calc(100%-32px))] items-center gap-12 py-16 lg:grid-cols-[.95fr_1.05fr]">
+      <section className="mx-auto grid min-h-[calc(100vh-80px)] w-[min(1180px,calc(100%-32px))] items-center gap-8 py-7 sm:gap-12 sm:py-12 lg:grid-cols-[.95fr_1.05fr] lg:py-16">
         <div>
-          <div className="badge mb-6"><Sparkles size={15} /> One branded portal for every client handoff</div>
-          <h1 className="max-w-4xl text-5xl font-black leading-[.96] tracking-[-0.065em] text-white sm:text-6xl lg:text-7xl xl:text-8xl">
+          <div className="badge mb-4 sm:mb-6"><Sparkles size={15} /> One branded portal for every client handoff</div>
+          <h1 className="max-w-4xl text-[2.65rem] font-black leading-[.96] tracking-[-0.06em] text-white sm:text-6xl lg:text-6xl xl:text-7xl">
             Give every client one polished place for files, updates, approvals, and invoices.
           </h1>
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-slate-300">
+          <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:mt-7 sm:text-lg sm:leading-8">
             HandOffHQ helps freelancers, agencies, consultants, designers, and video editors create a professional client portal in under 5 minutes — one link instead of five messy email threads.
           </p>
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-6 flex flex-col gap-3 sm:mt-9 sm:flex-row">
             <Link className="btn-primary" href="/login">Create your portal <ArrowRight size={18} /></Link>
             <a className="btn-secondary" href="#preview">See portal preview</a>
           </div>
-          <div className="mt-8 grid max-w-2xl grid-cols-2 gap-3 text-sm text-slate-300 sm:grid-cols-3">
+          <div className="mt-6 grid max-w-2xl grid-cols-2 gap-3 text-sm text-slate-300 sm:mt-8 sm:grid-cols-3">
             {features.map((feature) => (
               <div key={feature} className="flex items-center gap-2"><CheckCircle2 className="text-lime" size={16} /> {feature}</div>
             ))}
