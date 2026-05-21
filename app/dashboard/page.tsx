@@ -84,6 +84,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [authBlocked, setAuthBlocked] = useState(false);
   const [userId, setUserId] = useState("");
   const [email, setEmail] = useState("");
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
@@ -123,16 +124,18 @@ export default function DashboardPage() {
       return;
     }
     const { data, error: userError } = await supabase.auth.getUser();
-    if (userError) {
-      setNotice(formatSupabaseError("Loading session", userError));
+    if (userError || !data.user) {
+      setAuthBlocked(true);
+      setUserId("");
+      setClients([]);
+      setSelectedId("");
+      setRelated(emptyRelated);
+      setNotice("Your session is missing or expired. Log in again before creating a client portal.");
       setLoading(false);
       setRefreshing(false);
       return;
     }
-    if (!data.user) {
-      router.push("/login");
-      return;
-    }
+    setAuthBlocked(false);
     setUserId(data.user.id);
     setEmail(data.user.email || "");
     const { error: upsertError } = await supabase.from("users").upsert({ id: data.user.id, email: data.user.email });
@@ -221,20 +224,36 @@ export default function DashboardPage() {
   async function createClient(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
-    if (!userId) {
-      setNotice("You need to be signed in before creating a client portal. Refresh the page or sign in again.");
-      return;
-    }
     setSaving(true);
-    setNotice("Creating client portal...");
+    setNotice("Checking session...");
     try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        setAuthBlocked(true);
+        setUserId("");
+        setNotice("Your session is missing or expired. Log in again before creating a client portal.");
+        return;
+      }
+
+      const activeUserId = authData.user.id;
+      setAuthBlocked(false);
+      setUserId(activeUserId);
+      setEmail(authData.user.email || "");
+
+      const { error: profileUpsertError } = await supabase.from("users").upsert({ id: activeUserId, email: authData.user.email });
+      if (profileUpsertError) {
+        setNotice(formatSupabaseError("Preparing provider profile", profileUpsertError));
+        return;
+      }
+
+      setNotice("Creating client portal...");
       const form = new FormData(formElement);
       const name = String(form.get("name") || "");
       const projectName = String(form.get("project_name") || "");
       const template = portalTemplates.find((item) => item.id === selectedTemplateId) || null;
       const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
       const payload = {
-        provider_id: userId,
+        provider_id: activeUserId,
         name,
         email: String(form.get("email") || ""),
         company: String(form.get("company") || ""),
@@ -254,7 +273,7 @@ export default function DashboardPage() {
       }
       const client = data as ClientPortal;
       let templateError = "";
-      if (template) templateError = await applyPortalTemplate(client.id, template);
+      if (template) templateError = await applyPortalTemplate(client.id, activeUserId, template);
       setClients((current) => [client, ...current]);
       setSelectedId(client.id);
       await loadRelated(client.id);
@@ -269,24 +288,24 @@ export default function DashboardPage() {
     }
   }
 
-  async function applyPortalTemplate(clientId: string, template: PortalTemplate) {
+  async function applyPortalTemplate(clientId: string, providerId: string, template: PortalTemplate) {
     const [milestones, approvals, updates] = await Promise.all([
       supabase.from("milestones").insert(template.milestones.map((title, index) => ({
-        provider_id: userId,
+        provider_id: providerId,
         client_id: clientId,
         title,
         description: "Template starting point — edit or delete as needed.",
         status: index === 0 ? "in_progress" : "not_started",
       }))),
       supabase.from("approvals").insert(template.approvals.map((title) => ({
-        provider_id: userId,
+        provider_id: providerId,
         client_id: clientId,
         title,
         description: "Template approval request — edit or delete as needed.",
         status: "pending",
       }))),
       supabase.from("updates").insert(template.updates.map((body, index) => ({
-        provider_id: userId,
+        provider_id: providerId,
         client_id: clientId,
         title: `Project update ${index + 1}`,
         body,
@@ -416,6 +435,14 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {authBlocked && (
+          <div className="glass mb-5 rounded-[28px] border border-lime/20 p-5">
+            <h2 className="text-xl font-black">Login required</h2>
+            <p className="mt-2 text-slate-300">Your browser does not have an active HandOffHQ session. Log in again, then create the client portal.</p>
+            <Link href="/login" className="btn-primary mt-4 inline-flex">Log in again <ArrowUpRight size={16} /></Link>
+          </div>
+        )}
+
         <section className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[330px_minmax(0,1fr)]">
           <aside className="order-2 space-y-5 xl:order-1 xl:sticky xl:top-5 xl:self-start">
             <div className="glass rounded-[28px] p-4">
@@ -473,7 +500,7 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-              <button className="btn-primary mt-4 w-full" disabled={saving}><Link2 size={17} /> {saving ? "Creating portal..." : "Create client portal"}</button>
+              <button className="btn-primary mt-4 w-full" disabled={saving || authBlocked}><Link2 size={17} /> {saving ? "Creating portal..." : authBlocked ? "Log in required" : "Create client portal"}</button>
             </form>
           </aside>
 

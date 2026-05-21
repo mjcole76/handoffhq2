@@ -37,7 +37,18 @@ export default function LoginPage() {
     }
 
     if (data.user) {
-      await supabase.from("users").upsert({ id: data.user.id, email: data.user.email });
+      const { error: profileError } = await supabase.from("users").upsert({ id: data.user.id, email: data.user.email });
+      if (profileError && data.session) {
+        setMessage(profileError.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    if (!data.session) {
+      setMessage(mode === "signup" ? "Account created. Check your email to confirm it, then come back and log in." : "Login did not create an active session. Try again.");
+      setLoading(false);
+      return;
     }
 
     router.push("/dashboard");
