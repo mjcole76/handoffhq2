@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState("");
   const [email, setEmail] = useState("");
@@ -51,9 +52,12 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClient?.id]);
 
-  async function bootstrap() {
+  async function bootstrap(showRefreshState = false) {
+    if (showRefreshState) setRefreshing(true);
+    setNotice("");
     if (!isSupabaseConfigured) {
       setLoading(false);
+      setRefreshing(false);
       setNotice("Supabase is not configured yet. Add env vars to use the live app.");
       return;
     }
@@ -61,6 +65,7 @@ export default function DashboardPage() {
     if (userError) {
       setNotice(formatSupabaseError("Loading session", userError));
       setLoading(false);
+      setRefreshing(false);
       return;
     }
     if (!data.user) {
@@ -74,19 +79,28 @@ export default function DashboardPage() {
     const { data: profileData, error: profileError } = await supabase.from("users").select("*").eq("id", data.user.id).single();
     if (profileError) setNotice(formatSupabaseError("Loading provider profile", profileError));
     setProfile(profileData as ProviderProfile);
-    await loadClients(data.user.id);
+    const clientList = await loadClients(data.user.id);
+    const refreshedSelectedId = clientList.find((client) => client.id === selectedId)?.id || clientList[0]?.id || "";
+    setSelectedId(refreshedSelectedId);
+    if (refreshedSelectedId) {
+      await loadRelated(refreshedSelectedId);
+    } else {
+      setRelated(emptyRelated);
+    }
+    if (showRefreshState) setNotice("Dashboard refreshed.");
     setLoading(false);
+    setRefreshing(false);
   }
 
   async function loadClients(providerId = userId) {
     const { data, error } = await supabase.from("clients").select("*").eq("provider_id", providerId).order("created_at", { ascending: false });
     if (error) {
       setNotice(formatSupabaseError("Loading clients", error));
-      return;
+      return [];
     }
     const list = (data || []) as ClientPortal[];
     setClients(list);
-    if (!selectedId && list[0]) setSelectedId(list[0].id);
+    return list;
   }
 
   async function loadRelated(clientId: string) {
@@ -251,7 +265,9 @@ export default function DashboardPage() {
           </Link>
           <div className="flex flex-wrap items-center gap-2">
             <span className="badge">Provider dashboard</span>
-            <button onClick={() => void bootstrap()} className="btn-secondary"><RefreshCw size={16} /> Refresh</button>
+            <button onClick={() => void bootstrap(true)} className="btn-secondary" disabled={refreshing || saving}>
+              <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> {refreshing ? "Refreshing" : "Refresh"}
+            </button>
             <button onClick={() => void signOut()} className="btn-secondary btn-danger"><LogOut size={16} /> Sign out</button>
           </div>
         </header>
