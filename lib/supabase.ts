@@ -34,3 +34,18 @@ export function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return Math.random().toString(36).slice(2);
 }
+
+export function generateAccessCode() {
+  const array = new Uint32Array(1);
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    crypto.getRandomValues(array);
+    return `HQ-${String(array[0] % 1000000).padStart(6, "0")}`;
+  }
+  return `HQ-${Math.floor(100000 + Math.random() * 900000)}`;
+}
+
+export function formatSupabaseError(action: string, error: { message?: string; code?: string; details?: string } | null) {
+  if (!error) return "";
+  const parts = [error.message, error.code ? `Code: ${error.code}` : "", error.details].filter(Boolean);
+  return `${action} failed. ${parts.join(" • ")}`;
+}

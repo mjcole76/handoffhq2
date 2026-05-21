@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, BadgeCheck, Building2, CheckCircle2, CircleDollarSign, Clock3, Copy, FileText, FileUp, ImagePlus, Link2, Loader2, LogOut, Palette, Plus, RefreshCw, UploadCloud, UsersRound } from "lucide-react";
-import { isSupabaseConfigured, publicUrl, slugify, supabase, uid } from "@/lib/supabase";
+import { formatSupabaseError, generateAccessCode, isSupabaseConfigured, publicUrl, slugify, supabase, uid } from "@/lib/supabase";
 import type { Approval, ClientPortal, Invoice, Milestone, PortalFile, ProviderProfile, Update } from "@/lib/types";
 
 type Related = {
@@ -57,22 +57,33 @@ export default function DashboardPage() {
       setNotice("Supabase is not configured yet. Add env vars to use the live app.");
       return;
     }
-    const { data } = await supabase.auth.getUser();
+    const { data, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      setNotice(formatSupabaseError("Loading session", userError));
+      setLoading(false);
+      return;
+    }
     if (!data.user) {
       router.push("/login");
       return;
     }
     setUserId(data.user.id);
     setEmail(data.user.email || "");
-    await supabase.from("users").upsert({ id: data.user.id, email: data.user.email });
-    const { data: profileData } = await supabase.from("users").select("*").eq("id", data.user.id).single();
+    const { error: upsertError } = await supabase.from("users").upsert({ id: data.user.id, email: data.user.email });
+    if (upsertError) setNotice(formatSupabaseError("Creating provider profile", upsertError));
+    const { data: profileData, error: profileError } = await supabase.from("users").select("*").eq("id", data.user.id).single();
+    if (profileError) setNotice(formatSupabaseError("Loading provider profile", profileError));
     setProfile(profileData as ProviderProfile);
     await loadClients(data.user.id);
     setLoading(false);
   }
 
   async function loadClients(providerId = userId) {
-    const { data } = await supabase.from("clients").select("*").eq("provider_id", providerId).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("clients").select("*").eq("provider_id", providerId).order("created_at", { ascending: false });
+    if (error) {
+      setNotice(formatSupabaseError("Loading clients", error));
+      return;
+    }
     const list = (data || []) as ClientPortal[];
     setClients(list);
     if (!selectedId && list[0]) setSelectedId(list[0].id);
@@ -86,6 +97,8 @@ export default function DashboardPage() {
       supabase.from("invoices").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
       supabase.from("updates").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
     ]);
+    const relatedErrors = [files.error, milestones.error, approvals.error, invoices.error, updates.error].filter(Boolean);
+    if (relatedErrors.length) setNotice(formatSupabaseError("Loading selected client details", relatedErrors[0]));
     setRelated({
       files: (files.data || []) as PortalFile[],
       milestones: (milestones.data || []) as Milestone[],
@@ -110,7 +123,12 @@ export default function DashboardPage() {
     if (logo) {
       const path = `${userId}/brand/${uid()}-${logo.name}`;
       const { error } = await supabase.storage.from("handoff-files").upload(path, logo, { upsert: true });
-      if (!error) logoUrl = publicUrl(path);
+      if (error) {
+        setNotice(formatSupabaseError("Uploading logo", error));
+        setSaving(false);
+        return;
+      }
+      logoUrl = publicUrl(path);
     }
     const payload = {
       id: userId,
@@ -121,7 +139,7 @@ export default function DashboardPage() {
     };
     const { data, error } = await supabase.from("users").upsert(payload).select("*").single();
     if (!error) setProfile(data as ProviderProfile);
-    setNotice(error?.message || "Brand settings saved.");
+    setNotice(error ? formatSupabaseError("Saving brand settings", error) : "Brand settings saved.");
     setSaving(false);
   }
 
@@ -141,14 +159,15 @@ export default function DashboardPage() {
       project_name: projectName,
       project_status: String(form.get("project_status") || "Active"),
       slug: `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`,
+      access_code: generateAccessCode(),
     };
     const { data, error } = await supabase.from("clients").insert(payload).select("*").single();
-    if (error) setNotice(error.message);
+    if (error) setNotice(formatSupabaseError("Creating client portal", error));
     if (data) {
       setClients((current) => [data as ClientPortal, ...current]);
       setSelectedId(data.id);
       (event.target as HTMLFormElement).reset();
-      setNotice("Client portal created. Copy the portal link and send it to your client.");
+      setNotice("Client portal created. Copy the portal link and access code before sending it to your client.");
     }
     setSaving(false);
   }
@@ -166,7 +185,12 @@ export default function DashboardPage() {
       updates: { ...base, title: form.get("title"), body: form.get("body") },
     };
     const { error } = await supabase.from(table).insert(payloadByTable[table] as never);
-    setNotice(error?.message || `${table.slice(0, -1)} added.`);
+    if (error) {
+      setNotice(formatSupabaseError(`Adding ${table.slice(0, -1)}`, error));
+      setSaving(false);
+      return;
+    }
+    setNotice(`${table.slice(0, -1)} added.`);
     (event.target as HTMLFormElement).reset();
     await loadRelated(selectedClient.id);
     setSaving(false);
@@ -180,7 +204,7 @@ export default function DashboardPage() {
     const path = `${userId}/${selectedClient.id}/deliverables/${uid()}-${upload.name}`;
     const { error: uploadError } = await supabase.storage.from("handoff-files").upload(path, upload, { upsert: true });
     if (uploadError) {
-      setNotice(uploadError.message);
+      setNotice(formatSupabaseError("Uploading deliverable", uploadError));
       setSaving(false);
       return;
     }
@@ -193,7 +217,7 @@ export default function DashboardPage() {
       uploaded_by: "provider",
     });
     if (fileInput.current) fileInput.current.value = "";
-    setNotice(error?.message || "Deliverable uploaded.");
+    setNotice(error ? formatSupabaseError("Saving deliverable record", error) : "Deliverable uploaded.");
     await loadRelated(selectedClient.id);
     setSaving(false);
   }
@@ -206,6 +230,11 @@ export default function DashboardPage() {
   async function copyPortalLink(slug: string) {
     await navigator.clipboard.writeText(portalUrl(slug));
     setNotice("Portal link copied.");
+  }
+
+  async function copyPortalAccess(client: ClientPortal) {
+    await navigator.clipboard.writeText(`Portal: ${portalUrl(client.slug)}\nAccess code: ${client.access_code || "Not set"}`);
+    setNotice("Portal link and access code copied.");
   }
 
   if (loading) {
@@ -315,6 +344,7 @@ export default function DashboardPage() {
                   brandColor={brandColor}
                   portalUrl={portalUrl(selectedClient.slug)}
                   onCopy={() => void copyPortalLink(selectedClient.slug)}
+                  onCopyAccess={() => void copyPortalAccess(selectedClient)}
                   onAddRow={addRow}
                   onUpload={uploadDeliverable}
                   fileInput={fileInput}
@@ -338,13 +368,14 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="rounded-3xl border border-dashed border-white/15 bg-white/[.03] p-6 text-center"><h3 className="font-black">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{body}</p></div>;
 }
 
-function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, onAddRow, onUpload, fileInput }: {
+function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, onCopyAccess, onAddRow, onUpload, fileInput }: {
   client: ClientPortal;
   related: Related;
   saving: boolean;
   brandColor: string;
   portalUrl: string;
   onCopy: () => void;
+  onCopyAccess: () => void;
   onAddRow: (table: "milestones" | "approvals" | "invoices" | "updates", event: React.FormEvent<HTMLFormElement>) => Promise<void>;
   onUpload: () => Promise<void>;
   fileInput: React.RefObject<HTMLInputElement | null>;
@@ -359,11 +390,15 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <p className="mt-2 text-slate-300">{client.name} {client.company ? `• ${client.company}` : ""}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={onCopy} className="btn-secondary"><Copy size={16} /> Copy portal link</button>
+            <button onClick={onCopy} className="btn-secondary"><Copy size={16} /> Copy link</button>
+            <button onClick={onCopyAccess} className="btn-secondary"><Copy size={16} /> Copy link + code</button>
             <Link className="btn-primary" href={`/portal/${client.slug}`} target="_blank">Open portal <ArrowUpRight size={16} /></Link>
           </div>
         </div>
-        <p className="mt-4 break-all rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-300">{portalUrl}</p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_220px]">
+          <p className="break-all rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-300">{portalUrl}</p>
+          <p className="rounded-2xl border border-lime/20 bg-lime/10 p-3 text-sm text-lime-50"><span className="block text-[11px] font-black uppercase tracking-[.16em] text-lime/80">Access code</span><strong className="mt-1 block text-lg tracking-[.12em]">{client.access_code || "Not set"}</strong></p>
+        </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
