@@ -15,7 +15,67 @@ type Related = {
   updates: Update[];
 };
 
+type PortalTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  milestones: string[];
+  approvals: string[];
+  updates: string[];
+};
+
 const emptyRelated: Related = { files: [], milestones: [], approvals: [], invoices: [], updates: [] };
+
+const portalTemplates: PortalTemplate[] = [
+  {
+    id: "web-design",
+    name: "Web Design Project",
+    description: "Website structure, page drafts, client review, revisions, and launch handoff.",
+    milestones: ["Discovery Complete", "Sitemap Approved", "Homepage Draft", "Client Review", "Final Revisions", "Launch Handoff"],
+    approvals: ["Approve sitemap", "Approve homepage direction", "Approve final website"],
+    updates: ["Discovery is complete and the first structure is ready.", "Homepage draft is ready for review.", "Final launch files will be uploaded after approval."],
+  },
+  {
+    id: "brand-design",
+    name: "Logo / Brand Design Project",
+    description: "Brand discovery, moodboard, logo concepts, client review, and final logo package.",
+    milestones: ["Brand Discovery", "Moodboard", "Logo Concepts", "Client Review", "Final Logo Package"],
+    approvals: ["Approve moodboard", "Approve logo direction", "Approve final logo"],
+    updates: ["Brand discovery is complete.", "Logo concepts are being prepared.", "Final logo files will be delivered after approval."],
+  },
+  {
+    id: "video-editing",
+    name: "Video Editing Project",
+    description: "Footage intake, rough cut, review, final edit, and export delivery.",
+    milestones: ["Footage Received", "Rough Cut", "Client Review", "Final Edit", "Export Delivery"],
+    approvals: ["Approve rough cut", "Approve final edit"],
+    updates: ["Footage has been received.", "Rough cut is ready for review.", "Final export will be uploaded after approval."],
+  },
+  {
+    id: "copywriting",
+    name: "Copywriting Project",
+    description: "Brief, outline, draft, review, revisions, and final copy delivery.",
+    milestones: ["Brief Received", "Outline Draft", "First Draft", "Client Review", "Final Copy Delivery"],
+    approvals: ["Approve outline", "Approve final copy"],
+    updates: ["The brief has been reviewed.", "First draft is in progress.", "Final copy will be delivered after revisions."],
+  },
+  {
+    id: "seo",
+    name: "SEO Project",
+    description: "Audit, keyword research, optimization planning, implementation review, and reporting.",
+    milestones: ["Site Audit", "Keyword Research", "Optimization Plan", "Implementation Review", "Monthly Report"],
+    approvals: ["Approve keyword targets", "Approve optimization plan"],
+    updates: ["Site audit is complete.", "Keyword research is ready for review.", "Optimization plan has been prepared."],
+  },
+  {
+    id: "consulting",
+    name: "Consulting Project",
+    description: "Kickoff, discovery, strategy draft, review, and final recommendations.",
+    milestones: ["Kickoff", "Discovery Review", "Strategy Draft", "Client Review", "Final Recommendations"],
+    approvals: ["Approve strategy direction", "Approve final recommendations"],
+    updates: ["Kickoff is complete.", "Strategy draft is being prepared.", "Final recommendations will be delivered after review."],
+  },
+];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -29,6 +89,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
   const [clients, setClients] = useState<ClientPortal[]>([]);
   const [selectedId, setSelectedId] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("scratch");
   const [related, setRelated] = useState<Related>(emptyRelated);
   const [notice, setNotice] = useState("");
 
@@ -164,6 +225,7 @@ export default function DashboardPage() {
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "");
     const projectName = String(form.get("project_name") || "");
+    const template = portalTemplates.find((item) => item.id === selectedTemplateId) || null;
     const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
     const payload = {
       provider_id: userId,
@@ -176,14 +238,50 @@ export default function DashboardPage() {
       access_code: generateAccessCode(),
     };
     const { data, error } = await supabase.from("clients").insert(payload).select("*").single();
-    if (error) setNotice(formatSupabaseError("Creating client portal", error));
+    if (error) {
+      setNotice(formatSupabaseError("Creating client portal", error));
+      setSaving(false);
+      return;
+    }
     if (data) {
-      setClients((current) => [data as ClientPortal, ...current]);
-      setSelectedId(data.id);
+      const client = data as ClientPortal;
+      let templateError = "";
+      if (template) templateError = await applyPortalTemplate(client.id, template);
+      setClients((current) => [client, ...current]);
+      setSelectedId(client.id);
+      await loadRelated(client.id);
       (event.target as HTMLFormElement).reset();
-      setNotice("Client portal created. Copy the portal link and access code before sending it to your client.");
+      setSelectedTemplateId("scratch");
+      setNotice(templateError || `Client portal created${template ? ` from ${template.name}` : " from scratch"}. Templates are starting points — edit or delete any item before sending it to your client.`);
     }
     setSaving(false);
+  }
+
+  async function applyPortalTemplate(clientId: string, template: PortalTemplate) {
+    const [milestones, approvals, updates] = await Promise.all([
+      supabase.from("milestones").insert(template.milestones.map((title, index) => ({
+        provider_id: userId,
+        client_id: clientId,
+        title,
+        description: "Template starting point — edit or delete as needed.",
+        status: index === 0 ? "in_progress" : "not_started",
+      }))),
+      supabase.from("approvals").insert(template.approvals.map((title) => ({
+        provider_id: userId,
+        client_id: clientId,
+        title,
+        description: "Template approval request — edit or delete as needed.",
+        status: "pending",
+      }))),
+      supabase.from("updates").insert(template.updates.map((body, index) => ({
+        provider_id: userId,
+        client_id: clientId,
+        title: `Project update ${index + 1}`,
+        body,
+      }))),
+    ]);
+    const templateError = [milestones.error, approvals.error, updates.error].filter(Boolean)[0];
+    return templateError ? formatSupabaseError("Applying portal template", templateError) : "";
   }
 
   async function addRow(table: "milestones" | "approvals" | "invoices" | "updates", event: React.FormEvent<HTMLFormElement>) {
@@ -206,6 +304,31 @@ export default function DashboardPage() {
     }
     setNotice(`${table.slice(0, -1)} added.`);
     (event.target as HTMLFormElement).reset();
+    await loadRelated(selectedClient.id);
+    setSaving(false);
+  }
+
+  async function updateTemplateItem(table: "milestones" | "approvals" | "updates", item: Milestone | Approval | Update) {
+    if (!selectedClient) return;
+    const title = window.prompt("Update title", item.title);
+    if (title === null) return;
+    const text = "body" in item ? window.prompt("Update message", item.body) : window.prompt("Update description", item.description || "");
+    if (text === null) return;
+    setSaving(true);
+    const payload = table === "updates" ? { title, body: text } : { title, description: text };
+    const { error } = await supabase.from(table).update(payload as never).eq("id", item.id);
+    setNotice(error ? formatSupabaseError(`Updating ${table.slice(0, -1)}`, error) : `${table.slice(0, -1)} updated.`);
+    await loadRelated(selectedClient.id);
+    setSaving(false);
+  }
+
+  async function deleteTemplateItem(table: "milestones" | "approvals" | "updates", itemId: string) {
+    if (!selectedClient) return;
+    const confirmed = window.confirm(`Delete this ${table.slice(0, -1)}?`);
+    if (!confirmed) return;
+    setSaving(true);
+    const { error } = await supabase.from(table).delete().eq("id", itemId);
+    setNotice(error ? formatSupabaseError(`Deleting ${table.slice(0, -1)}`, error) : `${table.slice(0, -1)} deleted.`);
     await loadRelated(selectedClient.id);
     setSaving(false);
   }
@@ -318,6 +441,26 @@ export default function DashboardPage() {
                   <option>Active</option><option>Review</option><option>Complete</option><option>Paused</option>
                 </select>
               </div>
+              <div className="mt-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[.16em] text-cyan">Template</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">Starting point only. You can edit or delete every item after creation.</p>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <button type="button" onClick={() => setSelectedTemplateId("scratch")} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "scratch" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                    <span className="block text-sm font-black">Start from scratch</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Create an empty portal and add your own items.</span>
+                  </button>
+                  {portalTemplates.map((template) => (
+                    <button key={template.id} type="button" onClick={() => setSelectedTemplateId(template.id)} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === template.id ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                      <span className="block text-sm font-black">{template.name}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-400">{template.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button className="btn-primary mt-4 w-full" disabled={saving}><Link2 size={17} /> Create client portal</button>
             </form>
           </aside>
@@ -362,6 +505,8 @@ export default function DashboardPage() {
                   onCopy={() => void copyPortalLink(selectedClient.slug)}
                   onCopyAccess={() => void copyPortalAccess(selectedClient)}
                   onAddRow={addRow}
+                  onUpdateTemplateItem={updateTemplateItem}
+                  onDeleteTemplateItem={deleteTemplateItem}
                   onUpload={uploadDeliverable}
                   fileInput={fileInput}
                 />
@@ -384,7 +529,7 @@ function Empty({ title, body }: { title: string; body: string }) {
   return <div className="rounded-3xl border border-dashed border-white/15 bg-white/[.03] p-6 text-center"><h3 className="font-black">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{body}</p></div>;
 }
 
-function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, onCopyAccess, onAddRow, onUpload, fileInput }: {
+function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, onCopyAccess, onAddRow, onUpdateTemplateItem, onDeleteTemplateItem, onUpload, fileInput }: {
   client: ClientPortal;
   related: Related;
   saving: boolean;
@@ -393,6 +538,8 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
   onCopy: () => void;
   onCopyAccess: () => void;
   onAddRow: (table: "milestones" | "approvals" | "invoices" | "updates", event: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  onUpdateTemplateItem: (table: "milestones" | "approvals" | "updates", item: Milestone | Approval | Update) => Promise<void>;
+  onDeleteTemplateItem: (table: "milestones" | "approvals" | "updates", itemId: string) => Promise<void>;
   onUpload: () => Promise<void>;
   fileInput: React.RefObject<HTMLInputElement | null>;
 }) {
@@ -434,7 +581,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <input className="input" name="description" placeholder="Description" />
             <button className="btn-primary sm:col-span-2" disabled={saving}>Add milestone</button>
           </form>
-          <List items={related.milestones} emptyTitle="No milestones yet" emptyBody="Add two or three simple milestones so the client can see what is done, what is active, and what is next." render={(item) => <Row title={item.title} meta={`${item.status.replace("_", " ")}${item.due_date ? ` • ${item.due_date}` : ""}`} />} />
+          <List items={related.milestones} emptyTitle="No milestones yet" emptyBody="Add two or three simple milestones so the client can see what is done, what is active, and what is next." render={(item) => <ManageableRow title={item.title} meta={`${item.status.replace("_", " ")}${item.due_date ? ` • ${item.due_date}` : ""}`} saving={saving} onEdit={() => void onUpdateTemplateItem("milestones", item)} onDelete={() => void onDeleteTemplateItem("milestones", item.id)} />} />
         </Panel>
 
         <Panel title="Approvals" icon={<BadgeCheck className="text-teal" />}>
@@ -443,7 +590,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <textarea className="input min-h-24" name="description" placeholder="What should the client review?" />
             <button className="btn-primary w-full" disabled={saving}>Add approval request</button>
           </form>
-          <List items={related.approvals} emptyTitle="No approval requests yet" emptyBody="Create an approval request when a design, draft, edit, or deliverable is ready for client sign-off." render={(item) => <Row title={item.title} meta={item.status.replace("_", " ")} />} />
+          <List items={related.approvals} emptyTitle="No approval requests yet" emptyBody="Create an approval request when a design, draft, edit, or deliverable is ready for client sign-off." render={(item) => <ManageableRow title={item.title} meta={item.status.replace("_", " ")} saving={saving} onEdit={() => void onUpdateTemplateItem("approvals", item)} onDelete={() => void onDeleteTemplateItem("approvals", item.id)} />} />
         </Panel>
 
         <Panel title="Invoices" icon={<CircleDollarSign className="text-lime" />}>
@@ -462,7 +609,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <textarea className="input min-h-24" name="body" required placeholder="Write a short client-friendly project update." />
             <button className="btn-primary w-full" disabled={saving}>Post update</button>
           </form>
-          <List items={related.updates} emptyTitle="No project updates yet" emptyBody="Post short updates instead of sending scattered emails. Keep the client informed without adding chat." render={(item) => <Row title={item.title} meta={item.body} />} />
+          <List items={related.updates} emptyTitle="No project updates yet" emptyBody="Post short updates instead of sending scattered emails. Keep the client informed without adding chat." render={(item) => <ManageableRow title={item.title} meta={item.body} saving={saving} onEdit={() => void onUpdateTemplateItem("updates", item)} onDelete={() => void onDeleteTemplateItem("updates", item.id)} />} />
         </Panel>
       </div>
     </div>
@@ -477,6 +624,19 @@ function List<T>({ items, render, emptyTitle, emptyBody }: { items: T[]; render:
   return <div className="mt-4 space-y-2">{items.length === 0 ? <Empty title={emptyTitle} body={emptyBody} /> : items.map((item, index) => <div key={index}>{render(item)}</div>)}</div>;
 }
 
-function Row({ title, meta }: { title: string; meta: string }) {
-  return <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3"><h4 className="font-bold">{title}</h4><p className="mt-1 text-sm capitalize text-slate-400">{meta}</p></div>;
+function ManageableRow({ title, meta, saving, onEdit, onDelete }: { title: string; meta: string; saving: boolean; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="font-bold">{title}</h4>
+          <p className="mt-1 text-sm capitalize text-slate-400">{meta}</p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button type="button" onClick={onEdit} disabled={saving} className="rounded-xl border border-cyan/20 bg-cyan/10 px-2 py-1 text-[11px] font-black text-cyan-50">Edit</button>
+          <button type="button" onClick={onDelete} disabled={saving} className="rounded-xl border border-red-400/20 bg-red-500/10 px-2 py-1 text-[11px] font-black text-red-100">Delete</button>
+        </div>
+      </div>
+    </div>
+  );
 }
