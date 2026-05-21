@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUpRight, BadgeCheck, Building2, CheckCircle2, CircleDollarSign, Clock3, Copy, FileText, FileUp, ImagePlus, Link2, Loader2, LogOut, Palette, Plus, RefreshCw, Sparkles, UploadCloud, UsersRound } from "lucide-react";
+import { BRAND_KIT_UPDATE_TITLE, brandKitToClientSummary, encodeBrandKitDraft, parseBrandKitDraft, type BrandKitDraft } from "@/lib/brand-kit";
 import { formatSupabaseError, generateAccessCode, isSupabaseConfigured, publicUrl, slugify, supabase, uid } from "@/lib/supabase";
 import type { Approval, ClientPortal, Invoice, Milestone, PortalFile, ProviderProfile, Update } from "@/lib/types";
 
@@ -104,6 +105,10 @@ export default function DashboardPage() {
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiDraft, setAiDraft] = useState<AIPortalDraft | null>(null);
   const [aiWarning, setAiWarning] = useState("");
+  const [brandKitGenerating, setBrandKitGenerating] = useState(false);
+  const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft | null>(null);
+  const [brandKitDraftJson, setBrandKitDraftJson] = useState("");
+  const [brandKitWarning, setBrandKitWarning] = useState("");
   const [related, setRelated] = useState<Related>(emptyRelated);
   const [notice, setNotice] = useState("");
 
@@ -270,6 +275,67 @@ export default function DashboardPage() {
     }
   }
 
+  async function generateBrandKitDraft(formElement: HTMLFormElement | null) {
+    if (!formElement) return;
+    const form = new FormData(formElement);
+    const payload = {
+      businessName: String(form.get("brand_business_name") || form.get("company") || ""),
+      industry: String(form.get("brand_industry") || ""),
+      targetAudience: String(form.get("brand_target_audience") || ""),
+      mainOffer: String(form.get("brand_main_offer") || ""),
+      brandPersonality: String(form.get("brand_personality") || ""),
+      moodWords: String(form.get("brand_mood_words") || ""),
+      competitors: String(form.get("brand_competitors") || ""),
+      brandsTheyLike: String(form.get("brand_brands_they_like") || ""),
+      colorsLiked: String(form.get("brand_colors_liked") || ""),
+      colorsToAvoid: String(form.get("brand_colors_to_avoid") || ""),
+      logoStylePreference: String(form.get("brand_logo_style_preference") || ""),
+      websiteOrSocialLinks: String(form.get("brand_website_or_social_links") || ""),
+      notes: String(form.get("brand_notes") || ""),
+    };
+    if (!payload.businessName || !payload.industry || !payload.targetAudience) {
+      setNotice("Add business name, industry, and target audience before generating a Brand Kit draft.");
+      return;
+    }
+    setBrandKitGenerating(true);
+    setBrandKitWarning("");
+    setNotice("Generating Brand Kit draft...");
+    try {
+      const response = await fetch("/api/ai-brand-kit-builder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.draft) {
+        setNotice(result.error || "Brand Kit Builder failed. Check the intake and try again.");
+        return;
+      }
+      const draft = result.draft as BrandKitDraft;
+      setBrandKitDraft(draft);
+      setBrandKitDraftJson(JSON.stringify(draft, null, 2));
+      setBrandKitWarning(result.warning || (result.source === "fallback" ? "AI provider is not configured, so HandOffHQ generated a safe editable brand kit draft locally." : ""));
+      setNotice("Brand Kit draft generated. Review and edit it before creating the portal.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setNotice(`Brand Kit Builder failed. ${message}`);
+    } finally {
+      setBrandKitGenerating(false);
+    }
+  }
+
+  function parseReviewedBrandKitDraft() {
+    if (!brandKitDraftJson.trim()) return brandKitDraft;
+    try {
+      const parsed = JSON.parse(brandKitDraftJson) as BrandKitDraft;
+      setBrandKitDraft(parsed);
+      return parsed;
+    } catch {
+      setNotice("Brand Kit draft JSON is not valid. Fix it before creating the portal.");
+      return null;
+    }
+  }
+
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!userId) return;
@@ -330,11 +396,17 @@ export default function DashboardPage() {
       const name = String(form.get("name") || "");
       const projectName = String(form.get("project_name") || "");
       const isAiBuilder = selectedTemplateId === "ai-builder";
+      const isBrandKitBuilder = selectedTemplateId === "brand-kit-builder";
+      const reviewedBrandKitDraft = isBrandKitBuilder ? parseReviewedBrandKitDraft() : null;
       if (isAiBuilder && !aiDraft) {
         setNotice("Generate and review the AI portal draft before creating the portal.");
         return;
       }
-      const template = !isAiBuilder ? portalTemplates.find((item) => item.id === selectedTemplateId) || null : null;
+      if (isBrandKitBuilder && !reviewedBrandKitDraft) {
+        setNotice("Generate and review the Brand Kit draft before creating the portal.");
+        return;
+      }
+      const template = !isAiBuilder && !isBrandKitBuilder ? portalTemplates.find((item) => item.id === selectedTemplateId) || null : null;
       const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
       const payload = {
         provider_id: activeUserId,
@@ -359,6 +431,7 @@ export default function DashboardPage() {
       let templateError = "";
       if (template) templateError = await applyPortalTemplate(client.id, activeUserId, template);
       if (isAiBuilder && aiDraft) templateError = await applyAiPortalDraft(client.id, activeUserId, aiDraft, String(form.get("invoice_amount") || ""), String(form.get("due_date") || ""));
+      if (isBrandKitBuilder && reviewedBrandKitDraft) templateError = await applyBrandKitDraft(client.id, activeUserId, reviewedBrandKitDraft, String(form.get("due_date") || ""));
       setClients((current) => [client, ...current]);
       setSelectedId(client.id);
       await loadRelated(client.id);
@@ -366,7 +439,10 @@ export default function DashboardPage() {
       setSelectedTemplateId("scratch");
       setAiDraft(null);
       setAiWarning("");
-      setNotice(templateError || `Client portal created${isAiBuilder ? " from AI draft" : template ? ` from ${template.name}` : " from scratch"}. Starting items are editable — review them before sending the portal to your client.`);
+      setBrandKitDraft(null);
+      setBrandKitDraftJson("");
+      setBrandKitWarning("");
+      setNotice(templateError || `Client portal created${isBrandKitBuilder ? " from Brand Kit draft" : isAiBuilder ? " from AI draft" : template ? ` from ${template.name}` : " from scratch"}. Starting items are editable — review them before sending the portal to your client.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setNotice(`Creating client portal failed. ${message}`);
@@ -431,6 +507,29 @@ export default function DashboardPage() {
     ]);
     const aiError = [milestones.error, approvals.error, updates.error].filter(Boolean)[0];
     return aiError ? formatSupabaseError("Applying AI portal draft", aiError) : "";
+  }
+
+  async function applyBrandKitDraft(clientId: string, providerId: string, draft: BrandKitDraft, dueDate: string) {
+    const summary = brandKitToClientSummary(draft);
+    const [milestones, approvals, updates] = await Promise.all([
+      supabase.from("milestones").insert([
+        { provider_id: providerId, client_id: clientId, title: "Brand intake reviewed", description: "Client brand intake has been collected and organized.", status: "complete" },
+        { provider_id: providerId, client_id: clientId, title: "Brand direction drafted", description: "Positioning, visual direction, color, typography, and logo concepts are ready for review.", status: "in_progress" },
+        { provider_id: providerId, client_id: clientId, title: "Client review", description: "Client reviews the brand kit direction and requests edits if needed.", status: "not_started" },
+        { provider_id: providerId, client_id: clientId, title: "Final brand kit handoff", description: "Approved brand kit is delivered through the portal.", status: "not_started", due_date: dueDate || null },
+      ]),
+      supabase.from("approvals").insert([
+        { provider_id: providerId, client_id: clientId, title: "Approve brand direction", description: "Review the positioning, mood board direction, color palette, typography, and logo concepts.", status: "pending" },
+        { provider_id: providerId, client_id: clientId, title: "Approve final brand kit", description: "Confirm the brand kit is ready to use across website, social, and marketing materials.", status: "pending" },
+      ]),
+      supabase.from("updates").insert([
+        { provider_id: providerId, client_id: clientId, title: BRAND_KIT_UPDATE_TITLE, body: encodeBrandKitDraft(draft) },
+        { provider_id: providerId, client_id: clientId, title: "Brand Kit Summary", body: summary },
+        { provider_id: providerId, client_id: clientId, title: "Welcome", body: "Your brand kit portal is ready. Review the brand direction, logo concepts, colors, typography, and image style below. These are direction assets, not final trademark-cleared logos." },
+      ]),
+    ]);
+    const brandKitError = [milestones.error, approvals.error, updates.error].filter(Boolean)[0];
+    return brandKitError ? formatSupabaseError("Applying Brand Kit draft", brandKitError) : "";
   }
 
   async function addRow(table: "milestones" | "approvals" | "invoices" | "updates", event: React.FormEvent<HTMLFormElement>) {
@@ -606,16 +705,20 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <button type="button" onClick={() => { setSelectedTemplateId("scratch"); setAiDraft(null); setAiWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "scratch" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                  <button type="button" onClick={() => { setSelectedTemplateId("scratch"); setAiDraft(null); setAiWarning(""); setBrandKitDraft(null); setBrandKitDraftJson(""); setBrandKitWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "scratch" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
                     <span className="block text-sm font-black">Start from scratch</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Create an empty portal and add your own items.</span>
                   </button>
-                  <button type="button" onClick={() => setSelectedTemplateId("ai-builder")} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "ai-builder" ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                  <button type="button" onClick={() => { setSelectedTemplateId("ai-builder"); setBrandKitDraft(null); setBrandKitDraftJson(""); setBrandKitWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "ai-builder" ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
                     <span className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} /> Build with AI</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Generate a polished draft, review it, edit it, then create the portal.</span>
                   </button>
+                  <button type="button" onClick={() => { setSelectedTemplateId("brand-kit-builder"); setAiDraft(null); setAiWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "brand-kit-builder" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                    <span className="flex items-center gap-2 text-sm font-black"><Palette size={16} /> Brand Kit</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Collect client brand intake, generate a brand direction, then publish a client-facing kit.</span>
+                  </button>
                   {portalTemplates.map((template) => (
-                    <button key={template.id} type="button" onClick={() => { setSelectedTemplateId(template.id); setAiDraft(null); setAiWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === template.id ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                    <button key={template.id} type="button" onClick={() => { setSelectedTemplateId(template.id); setAiDraft(null); setAiWarning(""); setBrandKitDraft(null); setBrandKitDraftJson(""); setBrandKitWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === template.id ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
                       <span className="block text-sm font-black">{template.name}</span>
                       <span className="mt-1 block text-xs leading-5 text-slate-400">{template.description}</span>
                     </button>
@@ -675,7 +778,45 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              <button className="btn-primary mt-4 w-full" disabled={saving || authBlocked || aiGenerating}><Link2 size={17} /> {saving ? "Creating portal..." : authBlocked ? "Log in required" : selectedTemplateId === "ai-builder" ? "Create AI portal" : "Create client portal"}</button>
+              {selectedTemplateId === "brand-kit-builder" && (
+                <div className="mt-4 rounded-3xl border border-lime/20 bg-lime/10 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Palette className="text-lime" size={18} />
+                    <div>
+                      <p className="text-sm font-black">Brand Kit Builder</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-300">Collect intake, generate brand direction, review/edit, then publish it in the portal.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <input className="input" name="brand_business_name" placeholder="Business name — Oak & Stone Interiors" />
+                    <input className="input" name="brand_industry" placeholder="Industry — Interior design, salon, SaaS..." />
+                    <input className="input" name="brand_target_audience" placeholder="Target audience — High-income homeowners" />
+                    <input className="input" name="brand_main_offer" placeholder="Main offer or service" />
+                    <textarea className="input min-h-20" name="brand_personality" placeholder="Brand personality — warm, premium, timeless" />
+                    <textarea className="input min-h-20" name="brand_mood_words" placeholder="Mood words — modern, luxury, playful, bold, calm" />
+                    <textarea className="input min-h-20" name="brand_competitors" placeholder="Competitors — one per line or comma separated" />
+                    <textarea className="input min-h-20" name="brand_brands_they_like" placeholder="Example brands they like" />
+                    <input className="input" name="brand_colors_liked" placeholder="Colors liked — cream, forest green, gold" />
+                    <input className="input" name="brand_colors_to_avoid" placeholder="Colors to avoid — neon, red" />
+                    <input className="input" name="brand_logo_style_preference" placeholder="Logo style preference — minimal emblem, wordmark..." />
+                    <input className="input" name="brand_website_or_social_links" placeholder="Website or social links" />
+                    <textarea className="input min-h-20" name="brand_notes" placeholder="Other notes" />
+                    <button type="button" onClick={(event) => void generateBrandKitDraft(event.currentTarget.form)} className="btn-secondary w-full justify-center" disabled={brandKitGenerating || saving}>
+                      {brandKitGenerating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} {brandKitGenerating ? "Generating brand kit" : "Generate brand kit draft"}
+                    </button>
+                  </div>
+                  {brandKitWarning && <p className="mt-3 rounded-2xl border border-lime/20 bg-lime/10 p-3 text-xs leading-5 text-lime-50">{brandKitWarning}</p>}
+                  {brandKitDraft && (
+                    <div className="mt-4 space-y-3 rounded-3xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-xs font-black uppercase tracking-[.16em] text-lime">Review Brand Kit draft before creation</p>
+                      <p className="text-xs leading-5 text-slate-400">Edit the structured JSON if needed. It will be saved as the client-facing Brand Kit page after you create the portal.</p>
+                      <textarea className="input min-h-[360px] font-mono text-xs" value={brandKitDraftJson} onChange={(event) => setBrandKitDraftJson(event.target.value)} />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button className="btn-primary mt-4 w-full" disabled={saving || authBlocked || aiGenerating || brandKitGenerating}><Link2 size={17} /> {saving ? "Creating portal..." : authBlocked ? "Log in required" : selectedTemplateId === "brand-kit-builder" ? "Create Brand Kit portal" : selectedTemplateId === "ai-builder" ? "Create AI portal" : "Create client portal"}</button>
             </form>
           </aside>
 
@@ -757,6 +898,9 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
   onUpload: () => Promise<void>;
   fileInput: React.RefObject<HTMLInputElement | null>;
 }) {
+  const brandKitUpdate = related.updates.find((update) => parseBrandKitDraft(update.body));
+  const brandKit = brandKitUpdate ? parseBrandKitDraft(brandKitUpdate.body) : null;
+  const visibleUpdates = related.updates.filter((update) => !parseBrandKitDraft(update.body));
   return (
     <div className="space-y-5">
       <div className="glass rounded-[28px] p-5">
@@ -777,6 +921,27 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
           <p className="rounded-2xl border border-lime/20 bg-lime/10 p-3 text-sm text-lime-50"><span className="block text-[11px] font-black uppercase tracking-[.16em] text-lime/80">Access code</span><strong className="mt-1 block text-lg tracking-[.12em]">{client.access_code || "Not set"}</strong></p>
         </div>
       </div>
+
+      {brandKit && (
+        <Panel title="Brand Kit" icon={<Palette className="text-lime" />}>
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[.16em] text-slate-500">Positioning</p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">{brandKit.positioning}</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              {Object.values(brandKit.colorPalette).map((color) => <div key={color.hex} className="rounded-2xl border border-white/10 bg-white/[.035] p-3"><span className="mb-3 block h-10 rounded-xl" style={{ background: color.hex }} /><p className="text-sm font-black">{color.name}</p><p className="mt-1 text-xs text-slate-400">{color.hex}</p></div>)}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3"><p className="text-xs font-black uppercase tracking-[.16em] text-slate-500">Typography</p><p className="mt-2 text-sm text-slate-300">{brandKit.typography.headingFont} + {brandKit.typography.bodyFont}</p></div>
+              <div className="rounded-2xl border border-white/10 bg-white/[.035] p-3"><p className="text-xs font-black uppercase tracking-[.16em] text-slate-500">Personality</p><p className="mt-2 text-sm text-slate-300">{brandKit.brandPersonality.join(", ")}</p></div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {brandKit.logoConcepts.slice(0, 3).map((concept) => <div key={concept.name} className="rounded-2xl border border-white/10 bg-white/[.035] p-3"><h4 className="font-black">{concept.name}</h4><p className="mt-2 text-sm leading-6 text-slate-300">{concept.concept}</p></div>)}
+            </div>
+          </div>
+        </Panel>
+      )}
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Deliverables" icon={<UploadCloud className="text-cyan" />}>
@@ -823,7 +988,7 @@ function ClientDetail({ client, related, saving, brandColor, portalUrl, onCopy, 
             <textarea className="input min-h-24" name="body" required placeholder="Write a short client-friendly project update." />
             <button className="btn-primary w-full" disabled={saving}>Post update</button>
           </form>
-          <List items={related.updates} emptyTitle="No project updates yet" emptyBody="Post short updates instead of sending scattered emails. Keep the client informed without adding chat." render={(item) => <ManageableRow title={item.title} meta={item.body} saving={saving} onEdit={() => void onUpdateTemplateItem("updates", item)} onDelete={() => void onDeleteTemplateItem("updates", item.id)} />} />
+          <List items={visibleUpdates} emptyTitle="No project updates yet" emptyBody="Post short updates instead of sending scattered emails. Keep the client informed without adding chat." render={(item) => <ManageableRow title={item.title} meta={item.body} saving={saving} onEdit={() => void onUpdateTemplateItem("updates", item)} onDelete={() => void onDeleteTemplateItem("updates", item.id)} />} />
         </Panel>
       </div>
     </div>

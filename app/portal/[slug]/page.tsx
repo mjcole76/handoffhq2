@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, BadgeCheck, CheckCircle2, CircleDollarSign, Download, FileText, Loader2, LockKeyhole, MessageSquareReply, Send, UploadCloud } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, CheckCircle2, CircleDollarSign, Download, FileText, Loader2, LockKeyhole, MessageSquareReply, Palette, Send, UploadCloud } from "lucide-react";
+import { parseBrandKitDraft } from "@/lib/brand-kit";
 import { formatSupabaseError, isSupabaseConfigured, publicUrl, supabase, uid } from "@/lib/supabase";
 import type { Approval, ClientPortal, Invoice, Milestone, PortalFile, ProviderProfile, Update } from "@/lib/types";
 
@@ -58,6 +59,9 @@ export default function ClientPortalPage() {
 
   const deliverables = useMemo(() => files.filter((file) => file.file_type === "deliverable"), [files]);
   const clientUploads = useMemo(() => files.filter((file) => file.file_type === "client_upload"), [files]);
+  const brandKitUpdate = useMemo(() => updates.find((update) => parseBrandKitDraft(update.body)), [updates]);
+  const brandKit = useMemo(() => brandKitUpdate ? parseBrandKitDraft(brandKitUpdate.body) : null, [brandKitUpdate]);
+  const visibleUpdates = useMemo(() => updates.filter((update) => !parseBrandKitDraft(update.body)), [updates]);
 
   function sessionKey(portalSlug: string) {
     return `handoffhq:portal-access:${portalSlug}`;
@@ -213,6 +217,39 @@ export default function ClientPortalPage() {
 
         <section className="grid gap-5 lg:grid-cols-[1fr_360px]">
           <div className="space-y-5">
+            {brandKit && (
+              <Panel title="Brand Kit" icon={<Palette style={brandTextStyle} />}>
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">Brand Summary</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{brandKit.brandSummary}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">Positioning</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{brandKit.positioning}</p>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    {Object.values(brandKit.colorPalette).map((color) => <div key={color.hex} className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><span className="mb-3 block h-14 rounded-2xl" style={{ background: color.hex }} /><h3 className="font-black">{color.name}</h3><p className="mt-1 text-xs text-slate-400">{color.hex}</p><p className="mt-2 text-xs leading-5 text-slate-400">{color.usage}</p></div>)}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">Typography</p><h3 className="mt-2 font-black">{brandKit.typography.headingFont} + {brandKit.typography.bodyFont}</h3><p className="mt-2 text-sm leading-6 text-slate-300">{brandKit.typography.usageRules.join(" ")}</p></div>
+                    <div className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">Image Style</p><p className="mt-2 text-sm leading-6 text-slate-300">{brandKit.imageStyle.photographyStyle}</p></div>
+                  </div>
+                  <div>
+                    <p className="mb-3 text-xs font-bold uppercase tracking-[.16em] text-slate-500">Logo Concepts</p>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {brandKit.logoConcepts.slice(0, 3).map((concept) => <article key={concept.name} className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><h3 className="font-black">{concept.name}</h3><p className="mt-2 text-sm leading-6 text-slate-300">{concept.concept}</p><p className="mt-3 text-xs leading-5 text-slate-400">{concept.whyItFits}</p></article>)}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <RuleList title="Do" items={brandKit.styleGuide.doRules} />
+                    <RuleList title="Do Not" items={brandKit.styleGuide.dontRules} />
+                  </div>
+                  <p className="rounded-2xl border border-cyan/20 bg-cyan/10 p-3 text-xs leading-5 text-cyan-50">These are brand direction assets, not final trademark-cleared logos. Your provider can revise and package final files after approval.</p>
+                </div>
+              </Panel>
+            )}
+
             <Panel title="Project timeline" icon={<CheckCircle2 style={brandTextStyle} />}>
               <div className="space-y-3">
                 {milestones.length === 0 && <Empty text="No milestones have been posted yet. Your provider can add the project timeline from their dashboard." />}
@@ -236,8 +273,8 @@ export default function ClientPortalPage() {
 
             <Panel title="Project updates" icon={<MessageSquareReply style={brandTextStyle} />}>
               <div className="space-y-3">
-                {updates.length === 0 && <Empty text="No project updates yet. Your provider can post concise updates here instead of scattered email threads." />}
-                {updates.map((update) => <article key={update.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">{new Date(update.created_at).toLocaleDateString()}</p><h3 className="mt-2 font-black">{update.title}</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-300">{update.body}</p></article>)}
+                {visibleUpdates.length === 0 && <Empty text="No project updates yet. Your provider can post concise updates here instead of scattered email threads." />}
+                {visibleUpdates.map((update) => <article key={update.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">{new Date(update.created_at).toLocaleDateString()}</p><h3 className="mt-2 font-black">{update.title}</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-300">{update.body}</p></article>)}
               </div>
             </Panel>
           </div>
@@ -272,6 +309,10 @@ function Panel({ title, icon, children }: { title: string; icon: React.ReactNode
 
 function Empty({ text }: { text: string }) {
   return <div className="rounded-3xl border border-dashed border-white/15 bg-white/[.03] p-5 text-sm leading-6 text-slate-400">{text}</div>;
+}
+
+function RuleList({ title, items }: { title: string; items: string[] }) {
+  return <div className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">{title}</p><ul className="mt-3 space-y-2 text-sm leading-6 text-slate-300">{items.map((item) => <li key={item}>• {item}</li>)}</ul></div>;
 }
 
 function TimelineItem({ item, color }: { item: Milestone; color: string }) {
