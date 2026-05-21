@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, BadgeCheck, Building2, CheckCircle2, CircleDollarSign, Clock3, Copy, FileText, FileUp, ImagePlus, Link2, Loader2, LogOut, Palette, Plus, RefreshCw, UploadCloud, UsersRound } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Building2, CheckCircle2, CircleDollarSign, Clock3, Copy, FileText, FileUp, ImagePlus, Link2, Loader2, LogOut, Palette, Plus, RefreshCw, Sparkles, UploadCloud, UsersRound } from "lucide-react";
 import { formatSupabaseError, generateAccessCode, isSupabaseConfigured, publicUrl, slugify, supabase, uid } from "@/lib/supabase";
 import type { Approval, ClientPortal, Invoice, Milestone, PortalFile, ProviderProfile, Update } from "@/lib/types";
 
@@ -22,6 +22,16 @@ type PortalTemplate = {
   milestones: string[];
   approvals: string[];
   updates: string[];
+};
+
+type AIPortalDraft = {
+  welcomeMessage: string;
+  suggestedTemplateType: string;
+  milestones: string[];
+  approvalRequests: string[];
+  starterProjectUpdates: string[];
+  deliverablesChecklist: string[];
+  invoiceTitle: string;
 };
 
 const emptyRelated: Related = { files: [], milestones: [], approvals: [], invoices: [], updates: [] };
@@ -91,6 +101,9 @@ export default function DashboardPage() {
   const [clients, setClients] = useState<ClientPortal[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("scratch");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiDraft, setAiDraft] = useState<AIPortalDraft | null>(null);
+  const [aiWarning, setAiWarning] = useState("");
   const [related, setRelated] = useState<Related>(emptyRelated);
   const [notice, setNotice] = useState("");
 
@@ -191,6 +204,72 @@ export default function DashboardPage() {
     router.push("/");
   }
 
+  function aiListToText(items: string[]) {
+    return items.join("\n");
+  }
+
+  function textToAiList(value: string, maxItems: number) {
+    return value
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, maxItems);
+  }
+
+  function updateAiDraftField(field: keyof AIPortalDraft, value: string) {
+    setAiDraft((current) => {
+      if (!current) return current;
+      if (field === "milestones") return { ...current, milestones: textToAiList(value, 6) };
+      if (field === "approvalRequests") return { ...current, approvalRequests: textToAiList(value, 4) };
+      if (field === "starterProjectUpdates") return { ...current, starterProjectUpdates: textToAiList(value, 4) };
+      if (field === "deliverablesChecklist") return { ...current, deliverablesChecklist: textToAiList(value, 8) };
+      return { ...current, [field]: value };
+    });
+  }
+
+  async function generateAiDraft(formElement: HTMLFormElement | null) {
+    if (!formElement) return;
+    const form = new FormData(formElement);
+    const payload = {
+      clientName: String(form.get("name") || ""),
+      clientEmail: String(form.get("email") || ""),
+      projectName: String(form.get("project_name") || ""),
+      serviceType: String(form.get("service_type") || ""),
+      projectDescription: String(form.get("project_description") || ""),
+      mainDeliverables: String(form.get("main_deliverables") || ""),
+      dueDate: String(form.get("due_date") || ""),
+      invoiceAmount: String(form.get("invoice_amount") || ""),
+      tone: String(form.get("tone") || "Professional"),
+    };
+    if (!payload.clientName || !payload.projectName || !payload.projectDescription) {
+      setNotice("Add client name, project name, and project description before generating an AI portal draft.");
+      return;
+    }
+    setAiGenerating(true);
+    setAiWarning("");
+    setNotice("Generating AI portal draft...");
+    try {
+      const response = await fetch("/api/ai-portal-builder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.draft) {
+        setNotice(result.error || "AI Portal Builder failed. You can still use templates or start from scratch.");
+        return;
+      }
+      setAiDraft(result.draft as AIPortalDraft);
+      setAiWarning(result.warning || (result.source === "fallback" ? "AI provider is not configured, so HandOffHQ generated a safe editable draft locally." : ""));
+      setNotice("AI portal draft generated. Review and edit it before creating the portal.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setNotice(`AI Portal Builder failed. ${message}. You can still use templates or start from scratch.`);
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!userId) return;
@@ -250,7 +329,12 @@ export default function DashboardPage() {
       const form = new FormData(formElement);
       const name = String(form.get("name") || "");
       const projectName = String(form.get("project_name") || "");
-      const template = portalTemplates.find((item) => item.id === selectedTemplateId) || null;
+      const isAiBuilder = selectedTemplateId === "ai-builder";
+      if (isAiBuilder && !aiDraft) {
+        setNotice("Generate and review the AI portal draft before creating the portal.");
+        return;
+      }
+      const template = !isAiBuilder ? portalTemplates.find((item) => item.id === selectedTemplateId) || null : null;
       const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
       const payload = {
         provider_id: activeUserId,
@@ -274,12 +358,15 @@ export default function DashboardPage() {
       const client = data as ClientPortal;
       let templateError = "";
       if (template) templateError = await applyPortalTemplate(client.id, activeUserId, template);
+      if (isAiBuilder && aiDraft) templateError = await applyAiPortalDraft(client.id, activeUserId, aiDraft, String(form.get("invoice_amount") || ""), String(form.get("due_date") || ""));
       setClients((current) => [client, ...current]);
       setSelectedId(client.id);
       await loadRelated(client.id);
       formElement.reset();
       setSelectedTemplateId("scratch");
-      setNotice(templateError || `Client portal created${template ? ` from ${template.name}` : " from scratch"}. Templates are starting points — edit or delete any item before sending it to your client.`);
+      setAiDraft(null);
+      setAiWarning("");
+      setNotice(templateError || `Client portal created${isAiBuilder ? " from AI draft" : template ? ` from ${template.name}` : " from scratch"}. Starting items are editable — review them before sending the portal to your client.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setNotice(`Creating client portal failed. ${message}`);
@@ -313,6 +400,37 @@ export default function DashboardPage() {
     ]);
     const templateError = [milestones.error, approvals.error, updates.error].filter(Boolean)[0];
     return templateError ? formatSupabaseError("Applying portal template", templateError) : "";
+  }
+
+  async function applyAiPortalDraft(clientId: string, providerId: string, draft: AIPortalDraft, invoiceAmount: string, dueDate: string) {
+    const amount = Number(invoiceAmount || 0);
+    const updateRows = [
+      { provider_id: providerId, client_id: clientId, title: "Welcome", body: draft.welcomeMessage },
+      ...draft.starterProjectUpdates.map((body, index) => ({ provider_id: providerId, client_id: clientId, title: `Project update ${index + 1}`, body })),
+      ...(draft.deliverablesChecklist.length ? [{ provider_id: providerId, client_id: clientId, title: "Deliverables checklist", body: draft.deliverablesChecklist.map((item) => `• ${item}`).join("\n") }] : []),
+      ...(amount > 0 ? [{ provider_id: providerId, client_id: clientId, title: "Invoice placeholder", body: `${draft.invoiceTitle || "Project invoice"}: $${amount.toFixed(2)}. Add a payment link from the dashboard when ready.` }] : []),
+    ];
+
+    const [milestones, approvals, updates] = await Promise.all([
+      supabase.from("milestones").insert(draft.milestones.map((title, index) => ({
+        provider_id: providerId,
+        client_id: clientId,
+        title,
+        description: "AI-generated starting point — edit or delete as needed.",
+        status: index === 0 ? "in_progress" : "not_started",
+        due_date: dueDate && index === draft.milestones.length - 1 ? dueDate : null,
+      }))),
+      supabase.from("approvals").insert(draft.approvalRequests.map((title) => ({
+        provider_id: providerId,
+        client_id: clientId,
+        title,
+        description: "AI-generated approval request — edit or delete as needed.",
+        status: "pending",
+      }))),
+      supabase.from("updates").insert(updateRows),
+    ]);
+    const aiError = [milestones.error, approvals.error, updates.error].filter(Boolean)[0];
+    return aiError ? formatSupabaseError("Applying AI portal draft", aiError) : "";
   }
 
   async function addRow(table: "milestones" | "approvals" | "invoices" | "updates", event: React.FormEvent<HTMLFormElement>) {
@@ -488,19 +606,76 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <button type="button" onClick={() => setSelectedTemplateId("scratch")} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "scratch" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                  <button type="button" onClick={() => { setSelectedTemplateId("scratch"); setAiDraft(null); setAiWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "scratch" ? "border-lime/60 bg-lime/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
                     <span className="block text-sm font-black">Start from scratch</span>
                     <span className="mt-1 block text-xs leading-5 text-slate-400">Create an empty portal and add your own items.</span>
                   </button>
+                  <button type="button" onClick={() => setSelectedTemplateId("ai-builder")} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === "ai-builder" ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                    <span className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} /> Build with AI</span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">Generate a polished draft, review it, edit it, then create the portal.</span>
+                  </button>
                   {portalTemplates.map((template) => (
-                    <button key={template.id} type="button" onClick={() => setSelectedTemplateId(template.id)} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === template.id ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
+                    <button key={template.id} type="button" onClick={() => { setSelectedTemplateId(template.id); setAiDraft(null); setAiWarning(""); }} className={`rounded-2xl border p-3 text-left transition ${selectedTemplateId === template.id ? "border-cyan/60 bg-cyan/10 shadow-glow" : "border-white/10 bg-white/[.035] hover:border-cyan/30"}`}>
                       <span className="block text-sm font-black">{template.name}</span>
                       <span className="mt-1 block text-xs leading-5 text-slate-400">{template.description}</span>
                     </button>
                   ))}
                 </div>
               </div>
-              <button className="btn-primary mt-4 w-full" disabled={saving || authBlocked}><Link2 size={17} /> {saving ? "Creating portal..." : authBlocked ? "Log in required" : "Create client portal"}</button>
+
+              {selectedTemplateId === "ai-builder" && (
+                <div className="mt-4 rounded-3xl border border-cyan/20 bg-cyan/10 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Sparkles className="text-cyan" size={18} />
+                    <div>
+                      <p className="text-sm font-black">AI Portal Builder</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-300">Describe the project, generate a structured draft, then edit before saving.</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <input className="input" name="service_type" placeholder="Service type — Web design, SEO, copywriting..." />
+                    <textarea className="input min-h-24" name="project_description" placeholder="Short project description. What is being done and what should the client expect?" />
+                    <textarea className="input min-h-20" name="main_deliverables" placeholder="Main deliverables — one per line or comma separated" />
+                    <input className="input" name="due_date" type="date" />
+                    <input className="input" name="invoice_amount" type="number" step="0.01" placeholder="Invoice amount, optional" />
+                    <select className="input" name="tone" defaultValue="Professional">
+                      <option>Professional</option><option>Friendly</option><option>Premium</option><option>Simple</option>
+                    </select>
+                    <button type="button" onClick={(event) => void generateAiDraft(event.currentTarget.form)} className="btn-secondary w-full justify-center" disabled={aiGenerating || saving}>
+                      {aiGenerating ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} {aiGenerating ? "Generating draft" : "Generate portal draft"}
+                    </button>
+                  </div>
+                  {aiWarning && <p className="mt-3 rounded-2xl border border-lime/20 bg-lime/10 p-3 text-xs leading-5 text-lime-50">{aiWarning}</p>}
+                  {aiDraft && (
+                    <div className="mt-4 space-y-3 rounded-3xl border border-white/10 bg-black/20 p-3">
+                      <p className="text-xs font-black uppercase tracking-[.16em] text-cyan">Review AI draft before creation</p>
+                      <label className="block text-xs font-bold text-slate-300">Welcome message
+                        <textarea className="input mt-2 min-h-24" value={aiDraft.welcomeMessage} onChange={(event) => updateAiDraftField("welcomeMessage", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Suggested template type
+                        <input className="input mt-2" value={aiDraft.suggestedTemplateType} onChange={(event) => updateAiDraftField("suggestedTemplateType", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Milestones
+                        <textarea className="input mt-2 min-h-28" value={aiListToText(aiDraft.milestones)} onChange={(event) => updateAiDraftField("milestones", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Approval requests
+                        <textarea className="input mt-2 min-h-24" value={aiListToText(aiDraft.approvalRequests)} onChange={(event) => updateAiDraftField("approvalRequests", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Starter project updates
+                        <textarea className="input mt-2 min-h-28" value={aiListToText(aiDraft.starterProjectUpdates)} onChange={(event) => updateAiDraftField("starterProjectUpdates", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Suggested deliverables checklist
+                        <textarea className="input mt-2 min-h-24" value={aiListToText(aiDraft.deliverablesChecklist)} onChange={(event) => updateAiDraftField("deliverablesChecklist", event.target.value)} />
+                      </label>
+                      <label className="block text-xs font-bold text-slate-300">Optional invoice title
+                        <input className="input mt-2" value={aiDraft.invoiceTitle} onChange={(event) => updateAiDraftField("invoiceTitle", event.target.value)} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button className="btn-primary mt-4 w-full" disabled={saving || authBlocked || aiGenerating}><Link2 size={17} /> {saving ? "Creating portal..." : authBlocked ? "Log in required" : selectedTemplateId === "ai-builder" ? "Create AI portal" : "Create client portal"}</button>
             </form>
           </aside>
 
