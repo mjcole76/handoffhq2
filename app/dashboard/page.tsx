@@ -220,41 +220,53 @@ export default function DashboardPage() {
 
   async function createClient(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!userId) return;
-    setSaving(true);
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") || "");
-    const projectName = String(form.get("project_name") || "");
-    const template = portalTemplates.find((item) => item.id === selectedTemplateId) || null;
-    const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
-    const payload = {
-      provider_id: userId,
-      name,
-      email: String(form.get("email") || ""),
-      company: String(form.get("company") || ""),
-      project_name: projectName,
-      project_status: String(form.get("project_status") || "Active"),
-      slug: `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`,
-      access_code: generateAccessCode(),
-    };
-    const { data, error } = await supabase.from("clients").insert(payload).select("*").single();
-    if (error) {
-      setNotice(formatSupabaseError("Creating client portal", error));
-      setSaving(false);
+    const formElement = event.currentTarget;
+    if (!userId) {
+      setNotice("You need to be signed in before creating a client portal. Refresh the page or sign in again.");
       return;
     }
-    if (data) {
+    setSaving(true);
+    setNotice("Creating client portal...");
+    try {
+      const form = new FormData(formElement);
+      const name = String(form.get("name") || "");
+      const projectName = String(form.get("project_name") || "");
+      const template = portalTemplates.find((item) => item.id === selectedTemplateId) || null;
+      const baseSlug = slugify(`${profile?.business_name || "handoff"}-${name}-${projectName}`);
+      const payload = {
+        provider_id: userId,
+        name,
+        email: String(form.get("email") || ""),
+        company: String(form.get("company") || ""),
+        project_name: projectName,
+        project_status: String(form.get("project_status") || "Active"),
+        slug: `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`,
+        access_code: generateAccessCode(),
+      };
+      const { data, error } = await supabase.from("clients").insert(payload).select("*").single();
+      if (error) {
+        setNotice(formatSupabaseError("Creating client portal", error));
+        return;
+      }
+      if (!data) {
+        setNotice("Creating client portal failed. Supabase did not return the new portal record.");
+        return;
+      }
       const client = data as ClientPortal;
       let templateError = "";
       if (template) templateError = await applyPortalTemplate(client.id, template);
       setClients((current) => [client, ...current]);
       setSelectedId(client.id);
       await loadRelated(client.id);
-      (event.target as HTMLFormElement).reset();
+      formElement.reset();
       setSelectedTemplateId("scratch");
       setNotice(templateError || `Client portal created${template ? ` from ${template.name}` : " from scratch"}. Templates are starting points — edit or delete any item before sending it to your client.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setNotice(`Creating client portal failed. ${message}`);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   async function applyPortalTemplate(clientId: string, template: PortalTemplate) {
@@ -461,7 +473,7 @@ export default function DashboardPage() {
                   ))}
                 </div>
               </div>
-              <button className="btn-primary mt-4 w-full" disabled={saving}><Link2 size={17} /> Create client portal</button>
+              <button className="btn-primary mt-4 w-full" disabled={saving}><Link2 size={17} /> {saving ? "Creating portal..." : "Create client portal"}</button>
             </form>
           </aside>
 
