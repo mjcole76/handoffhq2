@@ -46,6 +46,8 @@ export default function ClientPortalPage() {
   const invoices = bundle.invoices;
   const updates = bundle.updates;
   const brandColor = provider?.brand_color || "#22d3ee";
+  const brandButtonStyle = { background: brandColor, boxShadow: `0 18px 55px ${brandColor}33` };
+  const brandTextStyle = { color: brandColor };
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -211,28 +213,28 @@ export default function ClientPortalPage() {
 
         <section className="grid gap-5 lg:grid-cols-[1fr_360px]">
           <div className="space-y-5">
-            <Panel title="Project timeline" icon={<CheckCircle2 className="text-lime" />}>
+            <Panel title="Project timeline" icon={<CheckCircle2 style={brandTextStyle} />}>
               <div className="space-y-3">
                 {milestones.length === 0 && <Empty text="No milestones have been posted yet. Your provider can add the project timeline from their dashboard." />}
                 {milestones.map((item) => <TimelineItem key={item.id} item={item} color={brandColor} />)}
               </div>
             </Panel>
 
-            <Panel title="Download files" icon={<Download className="text-cyan" />}>
+            <Panel title="Download files" icon={<Download style={brandTextStyle} />}>
               <div className="grid gap-3 md:grid-cols-2">
                 {deliverables.length === 0 && <Empty text="No deliverables are ready yet. Uploaded files will appear here as soon as your provider shares them." />}
-                {deliverables.map((file) => <a key={file.id} href={publicUrl(file.file_path)} target="_blank" className="card-hover rounded-3xl border border-white/10 bg-white/[.035] p-4"><FileText className="mb-4 text-cyan" /><h3 className="font-black">{file.title}</h3><p className="mt-2 text-sm text-slate-400">Click to download</p></a>)}
+                {deliverables.map((file) => <a key={file.id} href={publicUrl(file.file_path)} target="_blank" className="card-hover rounded-3xl border border-white/10 bg-white/[.035] p-4"><FileText className="mb-4" style={brandTextStyle} /><h3 className="font-black">{file.title}</h3><p className="mt-2 text-sm text-slate-400">Click to download</p></a>)}
               </div>
             </Panel>
 
-            <Panel title="Approval requests" icon={<BadgeCheck className="text-teal" />}>
+            <Panel title="Approval requests" icon={<BadgeCheck style={brandTextStyle} />}>
               <div className="space-y-3">
                 {approvals.length === 0 && <Empty text="No approval requests are waiting. When something needs sign-off, it will appear here with approve/request changes buttons." />}
-                {approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} saving={saving} onRespond={respondToApproval} />)}
+                {approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} saving={saving} brandButtonStyle={brandButtonStyle} onRespond={respondToApproval} />)}
               </div>
             </Panel>
 
-            <Panel title="Project updates" icon={<MessageSquareReply className="text-cyan" />}>
+            <Panel title="Project updates" icon={<MessageSquareReply style={brandTextStyle} />}>
               <div className="space-y-3">
                 {updates.length === 0 && <Empty text="No project updates yet. Your provider can post concise updates here instead of scattered email threads." />}
                 {updates.map((update) => <article key={update.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">{new Date(update.created_at).toLocaleDateString()}</p><h3 className="mt-2 font-black">{update.title}</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-300">{update.body}</p></article>)}
@@ -241,20 +243,20 @@ export default function ClientPortalPage() {
           </div>
 
           <aside className="space-y-5">
-            <Panel title="Upload assets" icon={<UploadCloud className="text-lime" />}>
+            <Panel title="Upload assets" icon={<UploadCloud style={brandTextStyle} />}>
               <p className="mb-4 text-sm leading-6 text-slate-400">Send source files, assets, notes, or reference material back to your provider.</p>
               <input ref={uploadInput} className="input" type="file" />
-              <button onClick={() => void uploadClientFile()} className="btn-primary mt-3 w-full" disabled={saving}><UploadCloud size={16} /> Upload file</button>
+              <button onClick={() => void uploadClientFile()} className="btn-primary mt-3 w-full" style={brandButtonStyle} disabled={saving}><UploadCloud size={16} /> Upload file</button>
               <div className="mt-4 space-y-2">
                 {clientUploads.length === 0 && <Empty text="Your uploads will appear here after you send source files, references, or feedback assets." />}
                 {clientUploads.map((file) => <a key={file.id} href={publicUrl(file.file_path)} target="_blank" className="block rounded-2xl border border-white/10 bg-white/[.035] p-3 text-sm text-slate-300">{file.title}</a>)}
               </div>
             </Panel>
 
-            <Panel title="Invoices" icon={<CircleDollarSign className="text-lime" />}>
+            <Panel title="Invoices" icon={<CircleDollarSign style={brandTextStyle} />}>
               <div className="space-y-3">
                 {invoices.length === 0 && <Empty text="No invoices have been added yet. Payment links will appear here when your provider adds them." />}
-                {invoices.map((invoice) => <a key={invoice.id} href={invoice.payment_url} target="_blank" className="card-hover block rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-sm text-slate-400">{invoice.status}</p><h3 className="mt-1 font-black">{invoice.title}</h3><div className="mt-4 flex items-center justify-between"><strong className="text-2xl">${Number(invoice.amount).toFixed(2)}</strong><span className="inline-flex items-center gap-1 text-sm font-black text-cyan">Pay <ArrowUpRight size={15} /></span></div></a>)}
+                {invoices.map((invoice) => <a key={invoice.id} href={invoice.payment_url} target="_blank" className="card-hover block rounded-3xl border border-white/10 bg-white/[.035] p-4"><p className="text-sm text-slate-400">{invoice.status}</p><h3 className="mt-1 font-black">{invoice.title}</h3><div className="mt-4 flex items-center justify-between"><strong className="text-2xl">${Number(invoice.amount).toFixed(2)}</strong><span className="inline-flex items-center gap-1 text-sm font-black" style={brandTextStyle}>Pay <ArrowUpRight size={15} /></span></div></a>)}
               </div>
             </Panel>
           </aside>
@@ -276,13 +278,13 @@ function TimelineItem({ item, color }: { item: Milestone; color: string }) {
   return <div className="flex gap-4 rounded-3xl border border-white/10 bg-white/[.035] p-4"><span className="mt-1 h-4 w-4 shrink-0 rounded-full" style={{ background: item.status === "complete" ? color : "rgba(148,163,184,.45)" }} /><div><h3 className="font-black">{item.title}</h3><p className="mt-1 text-sm capitalize text-slate-400">{item.status.replace("_", " ")}{item.due_date ? ` • Due ${item.due_date}` : ""}</p>{item.description && <p className="mt-2 text-sm leading-6 text-slate-300">{item.description}</p>}</div></div>;
 }
 
-function ApprovalCard({ approval, saving, onRespond }: { approval: Approval; saving: boolean; onRespond: (approval: Approval, status: "approved" | "changes_requested", responseNote: string) => Promise<void> }) {
+function ApprovalCard({ approval, saving, brandButtonStyle, onRespond }: { approval: Approval; saving: boolean; brandButtonStyle: React.CSSProperties; onRespond: (approval: Approval, status: "approved" | "changes_requested", responseNote: string) => Promise<void> }) {
   const [note, setNote] = useState(approval.response_note || "");
   const done = approval.status !== "pending";
   return (
     <article className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
       <div className="flex items-start justify-between gap-3"><div><h3 className="font-black">{approval.title}</h3><p className="mt-2 text-sm leading-6 text-slate-300">{approval.description}</p></div><span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black capitalize text-slate-200">{approval.status.replace("_", " ")}</span></div>
-      {!done ? <div className="mt-4 space-y-3"><textarea value={note} onChange={(e) => setNote(e.target.value)} className="input min-h-20" placeholder="Optional note" /><div className="grid gap-2 sm:grid-cols-2"><button disabled={saving} onClick={() => void onRespond(approval, "changes_requested", note)} className="btn-secondary"><Send size={16} /> Request changes</button><button disabled={saving} onClick={() => void onRespond(approval, "approved", note)} className="btn-primary"><BadgeCheck size={16} /> Approve</button></div></div> : approval.response_note && <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-300">{approval.response_note}</p>}
+      {!done ? <div className="mt-4 space-y-3"><textarea value={note} onChange={(e) => setNote(e.target.value)} className="input min-h-20" placeholder="Optional note" /><div className="grid gap-2 sm:grid-cols-2"><button disabled={saving} onClick={() => void onRespond(approval, "changes_requested", note)} className="btn-secondary"><Send size={16} /> Request changes</button><button disabled={saving} onClick={() => void onRespond(approval, "approved", note)} className="btn-primary" style={brandButtonStyle}><BadgeCheck size={16} /> Approve</button></div></div> : approval.response_note && <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-slate-300">{approval.response_note}</p>}
     </article>
   );
 }
